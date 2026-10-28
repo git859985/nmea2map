@@ -1,525 +1,892 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
+<!doctype html>
+<html lang="zh-Hant">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>GNSS 即時軌跡監控 (RMC + GGA + GST)</title>
-  
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NMEA 即時地圖</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --text: #1b2733; --muted: #5b6b7b; --line: #d9e0e7;
+    --accent: #1565c0; --accent-text: #ffffff; --ok: #16794a; --warn: #9a5b00; --bad: #b3261e;
+    --chip-bg: #e9eef3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10161c; --card: #18212a; --text: #e6edf3; --muted: #9fb0c0; --line: #2b3947;
+      --accent: #64b5f6; --accent-text: #0b1620; --ok: #4cc38a; --warn: #f0b04a; --bad: #ff8a80;
+      --chip-bg: #223140;
     }
-    html, body, #map {
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    }
-    
-    .status-panel {
-      position: absolute;
-      top: 12px;
-      left: 12px;
-      z-index: 1000;
-      background: rgba(255, 255, 255, 0.96);
-      padding: 12px 14px;
-      border-radius: 8px;
-      box-shadow: 0 4px 18px rgba(0,0,0,0.25);
-      width: calc(100% - 24px);
-      max-width: 340px;
-      backdrop-filter: blur(5px);
-    }
-    
-    .panel-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-    .panel-header h3 {
-      font-size: 15px;
-      font-weight: 600;
-      color: #111;
-    }
-    .btn-group {
-      display: flex;
-      gap: 6px;
-    }
-    .panel-btn {
-      border: none;
-      font-size: 12px;
-      padding: 4px 8px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: 500;
-      color: #fff;
-    }
-    .clear-btn {
-      background: #dc3545;
-    }
-    .clear-btn:hover {
-      background: #c82333;
-    }
-    .center-btn {
-      background: #6c757d;
-    }
-    .center-btn.active {
-      background: #198754;
-    }
-    
-    .status-content {
-      font-size: 13px;
-      color: #222;
-      line-height: 1.6;
-    }
-    .status-badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-weight: 700;
-      color: #fff;
-      background: #6c757d;
-      font-size: 12px;
-      text-shadow: 0 1px 2px rgba(0,0,0,0.4);
-    }
-    .mono {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 12px;
-      color: #111;
-    }
-    .gst-highlight {
-      color: #d63384;
-      font-weight: 600;
-    }
-    .motion-highlight {
-      color: #0d6efd;
-      font-weight: 600;
-    }
-    .sub-info {
-      font-size: 11px;
-      color: #666;
-      margin-top: 5px;
-      border-top: 1px solid #eee;
-      padding-top: 4px;
-    }
-    
-    .heading-icon {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      pointer-events: none;
-    }
-  </style>
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", "Microsoft JhengHei", system-ui, -apple-system, sans-serif;
+    font-size: 15px; line-height: 1.45;
+    display: flex; flex-direction: column; min-height: 100vh;
+  }
+  header.bar {
+    background: var(--card); border-bottom: 1px solid var(--line);
+    padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  }
+  header.bar h1 { font-size: 17px; margin: 0; font-weight: 650; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .field { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; max-width: 100%; min-width: 0; }
+  .field label { color: var(--muted); font-size: 14px; }
+  input[type=text] {
+    height: 38px; width: 190px; padding: 0 10px; font-size: 15px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text);
+  }
+  button {
+    height: 38px; padding: 0 16px; font-size: 14px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--text);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button:hover { filter: brightness(0.96); }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+  .hint { overflow-wrap: anywhere; max-width: 100%; color: var(--muted); font-size: 12px; font-family: Consolas, "Cascadia Mono", monospace; }
+  .check { display: flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+  .check input { width: 16px; height: 16px; }
+  .status { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .chip { padding: 3px 10px; border-radius: 999px; background: var(--chip-bg); color: var(--muted); font-weight: 600; }
+  .chip.ok { color: var(--ok); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); }
+  .notice {
+    margin: 0; padding: 10px 16px; font-size: 14px; border-bottom: 1px solid var(--line);
+    background: #fff4d6; color: #4a3500; display: none;
+  }
+  @media (prefers-color-scheme: dark) { .notice { background: #3a2f10; color: #ffe7a8; } }
+  .notice a { color: inherit; font-weight: 600; }
+  .notice button { height: 28px; padding: 0 10px; margin-left: 10px; }
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 390px; }
+  #map { min-height: 420px; background: #cfd8dc; }
+  aside { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; border-left: 1px solid var(--line); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px 12px; }
+  .card h2 { margin: 0 0 6px; font-size: 14px; font-weight: 650; display: flex; justify-content: space-between; }
+  .card h2 small { color: var(--muted); font-weight: 400; }
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; }
+  dt { color: var(--muted); font-size: 14px; }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-family: Consolas, "Cascadia Mono", monospace; font-size: 14px; word-break: break-all; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: baseline; border: 1px solid rgba(0,0,0,.25); }
+  @media (max-width: 860px) {
+    body { min-height: 0; }
+    main { grid-template-columns: 1fr; display: block; }
+    #map { height: 55vh; }
+    aside { border-left: 0; border-top: 1px solid var(--line); }
+    .status { margin-left: 0; }
+    .controls { max-width: 100%; }
+    .field input { max-width: 100%; min-width: 0; }
+  }
+  /* ---- 水位高卡片 ---- */
+  dt label { cursor: pointer; }
+  input.num {
+    height: 30px; width: 110px; padding: 0 8px; font-size: 14px; text-align: right;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text);
+  }
+  dd.big { font-size: 18px; font-weight: 650; }
+  dd.muted { color: var(--muted); font-weight: 400; }
+  .warn-text { color: var(--warn); }
+  /* ---- 方格提示 ---- */
+  .grid-hint {
+    background: rgba(255,255,255,.9); color: #1b2733; padding: 3px 8px; border-radius: 4px;
+    font-size: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  }
+</style>
 </head>
 <body>
 
-  <div id="map"></div>
-
-  <div class="status-panel">
-    <div class="panel-header">
-      <h3>GNSS 航跡監控</h3>
-      <div class="btn-group">
-        <button class="panel-btn center-btn active" id="btnRecenter">鎖定跟隨</button>
-        <button class="panel-btn clear-btn" id="btnClear">清除航跡</button>
-      </div>
+<header class="bar">
+  <h1>NMEA 即時地圖</h1>
+  <div class="controls">
+    <div class="field">
+      <label for="deviceId">設備 ID</label>
+      <input id="deviceId" type="text" autocomplete="off" spellcheck="false" aria-describedby="topicHint">
+      <span id="topicHint" class="hint" hidden></span>
     </div>
-    
-    <div class="status-content">
-      <div>解算：<span class="status-badge" id="fixBadge">連線中...</span></div>
-      <div>座標：<span class="mono" id="posText">尚未取得</span></div>
-      <div>數據：<span class="mono" id="satAltText">-</span></div>
-      <div>航行：<span class="mono motion-highlight" id="motionText">速度: - | 航向: -</span></div>
-      <div>精度 (GST)：<span class="mono gst-highlight" id="gstText">等待 GST...</span></div>
-      <div>點數 / 航程：<span class="mono" id="trackStats">0 點 / 0.0 m</span></div>
-      <div class="sub-info" id="updateText">等待 NMEA 封包...</div>
-    </div>
+    <button id="btnConnect" class="primary" type="button">連線</button>
+    <label class="check"><input id="chkFollow" type="checkbox" checked> 自動置中</label>
+    <button id="btnFit" type="button">全覽軌跡</button>
+    <button id="btnClear" type="button">清除軌跡</button>
   </div>
+  <div class="status" role="status" aria-live="polite">
+    <span id="staleChip" class="chip" hidden></span>
+    <span id="statusChip" class="chip">尚未連線</span>
+  </div>
+</header>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
+<p id="notice" class="notice" role="alert"></p>
+<p id="fileNotice" class="notice">
+  目前是直接以檔案開啟本頁。OpenStreetMap 的底圖伺服器可能因為收不到「來源網頁」資訊而拒絕提供圖磚（地圖上會出現 Access blocked 字樣）。
+  若發生這種情況，請把地圖右上角的圖層切換成「衛星影像」，或改用 http://localhost 的方式開啟本頁。
+  <button id="btnFileNoticeClose" type="button">知道了</button>
+</p>
 
-  <script>
-    // ==========================================
-    // 寫死連線參數設定
-    // ==========================================
-    const MQTT_CONFIG = {
-      host: 'wss://mqttgo.vip:8084/mqtt',
-      topic: '/user/rock859985/RTK/KY8688E0/log',
-      username: '',
-      password: ''
-    };
+<main>
+  <div id="map" role="region" aria-label="地圖"></div>
+  <aside>
+    <section class="card">
+      <h2>定位 <small>GGA</small></h2>
+      <dl>
+        <dt>定位品質</dt><dd id="gga_q">—</dd>
+        <dt>緯度</dt><dd id="gga_lat">—</dd>
+        <dt>經度</dt><dd id="gga_lon">—</dd>
+        <dt>海拔高度</dt><dd id="gga_alt">—</dd>
+        <dt>大地水準面差</dt><dd id="gga_geoid">—</dd>
+        <dt>衛星數</dt><dd id="gga_sv">—</dd>
+        <dt>HDOP</dt><dd id="gga_hdop">—</dd>
+        <dt>差分齡期</dt><dd id="gga_age">—</dd>
+        <dt>基站 ID</dt><dd id="gga_station">—</dd>
+        <dt>UTC 時間</dt><dd id="gga_time">—</dd>
+      </dl>
+    </section>
 
-    const TRACK_COLOR = '#FF0000'; // 一律純紅軌跡
+    <section class="card">
+      <h2>水位高 <small>GGA 海拔高度 − 天線高</small></h2>
+      <dl>
+        <dt><label for="antHeight">天線高（m）</label></dt>
+        <dd><input id="antHeight" class="num" type="number" step="0.001" inputmode="decimal" placeholder="請輸入"></dd>
+        <dt>水位高</dt><dd id="wl_value" class="big">—</dd>
+      </dl>
+    </section>
 
-    // ==========================================
-    // 1. 初始化 Leaflet 地圖
-    // ==========================================
-    const map = L.map('map', {
-      zoomControl: false,
-      attributionControl: false
-    }).setView([23.9469, 120.6615], 17);
+    <section class="card">
+      <h2>方位 <small>HDT</small></h2>
+      <dl>
+        <dt>方位角（真北）</dt><dd id="hdt_deg">—</dd>
+        <dt>方向</dt><dd id="hdt_dir">—</dd>
+      </dl>
+    </section>
 
-    const googleRoadmap = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', { maxZoom: 22 });
-    const googleSatellite = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 22 });
-    const osmMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+    <section class="card">
+      <h2>誤差估計 <small>GST（單位：公尺）</small></h2>
+      <dl>
+        <dt>測距 RMS</dt><dd id="gst_rms">—</dd>
+        <dt>誤差橢圓長軸</dt><dd id="gst_major">—</dd>
+        <dt>誤差橢圓短軸</dt><dd id="gst_minor">—</dd>
+        <dt>橢圓長軸方向</dt><dd id="gst_orient">—</dd>
+        <dt>緯度標準差</dt><dd id="gst_lat">—</dd>
+        <dt>經度標準差</dt><dd id="gst_lon">—</dd>
+        <dt>高度標準差</dt><dd id="gst_alt">—</dd>
+      </dl>
+    </section>
 
-    googleRoadmap.addTo(map);
+    <section class="card">
+      <h2>速度與方向 <small>RMC</small></h2>
+      <dl>
+        <dt>狀態</dt><dd id="rmc_status">—</dd>
+        <dt>速度</dt><dd id="rmc_speed">—</dd>
+        <dt>航向</dt><dd id="rmc_course">—</dd>
+        <dt>UTC 日期時間</dt><dd id="rmc_utc">—</dd>
+        <dt>台北時間</dt><dd id="rmc_taipei">—</dd>
+        <dt>磁偏角</dt><dd id="rmc_magvar">—</dd>
+        <dt>定位模式</dt><dd id="rmc_mode">—</dd>
+        <dt>導航狀態</dt><dd id="rmc_nav">—</dd>
+      </dl>
+    </section>
 
-    L.control.layers({
-      "Google 街道圖": googleRoadmap,
-      "Google 混合衛星圖": googleSatellite,
-      "OpenStreetMap": osmMap
-    }, null, { position: 'bottomright' }).addTo(map);
+    <section class="card">
+      <h2>統計</h2>
+      <dl>
+        <dt>已收到的行數</dt><dd id="st_total">0</dd>
+        <dt>通過檢查碼</dt><dd id="st_ok">0</dd>
+        <dt>已忽略（格式或檢查碼錯誤）</dt><dd id="st_bad">0</dd>
+        <dt>軌跡點數</dt><dd id="st_trail">0</dd>
+      </dl>
+    </section>
+  </aside>
+</main>
 
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
+<script>
+(function () {
+  'use strict';
 
-    // ==========================================
-    // 2. 標記、航向與跟隨控制
-    // ==========================================
-    const fixModes = {
-      0: { text: "未定位", color: "#6c757d" },
-      1: { text: "單點 (Single)", color: "#007bff" },
-      2: { text: "差分 (DGPS)", color: "#17a2b8" },
-      4: { text: "RTK 固定解 (Fixed)", color: "#28a745" },
-      5: { text: "RTK 浮點解 (Float)", color: "#fd7e14" },
-      6: { text: "航位推算", color: "#6f42c1" }
-    };
+  /* ========== 固定設定：直接改這裡 ========== */
+  const MQTT_URL = 'wss://mqttgo.vip:8084/mqtt';
+  const MQTT_USERNAME = '';              // 不需要就留空字串
+  const MQTT_PASSWORD = '';
+  const MQTT_QOS = 0;
+  const TOPIC_PREFIX = '/user/rock859985/RTK/';     // 完整 Topic = 前綴 + 設備ID + 後綴
+  const TOPIC_SUFFIX = '/nmea';
+  const DEFAULT_DEVICE_ID = 'KY123456';
 
-    const trackLayerGroup = L.layerGroup().addTo(map);
-    
-    let currentMarker = null;
-    let headingMarker = null;
-    let startMarker = null;
-    let lastPoint = null;
-    let currentHeading = null;
-    let totalPoints = 0;
-    let totalDistance = 0;
-    let autoCenter = true; // 跟隨狀態開關
+  const MAX_TRAIL_POINTS = 5000;         // 軌跡最多保留幾個點，超過就丟掉最舊的
+  const TRAIL_COLOR = '#dc2626';          // 軌跡顏色（紅色）
+  const MIN_STEP_METERS = 0.02;          // 與上一點相距小於這個距離就不加點（靜止時避免堆積）
+  const STALE_SECONDS = 5;               // 超過幾秒沒收到新定位（或新方位），就標示「資料中斷」／車形變灰
 
-    const btnRecenter = document.getElementById('btnRecenter');
+  // ---- 車形輪廓（1:1 實際尺寸）----
+  const VEHICLE_LENGTH = 4.5;            // 車長（公尺）
+  const VEHICLE_WIDTH = 1.8;             // 車寬（公尺）
+  const ANTENNA_FROM_FRONT = 2.25;       // 天線（GGA 位置）離車頭幾公尺；車頂正中央 = 車長的一半
+  const ANTENNA_RIGHT = 0;               // 天線在車身中心線右側幾公尺（在左側填負數，正中央填 0）
+  const HEADING_OFFSET = 0;              // HDT 修正角（度）：車頭方向 = HDT + 這個值；雙天線沿車身前後安裝填 0
+  const VEHICLE_COLOR = '#1e3a8a';       // 車形顏色（深藍）
+  const VEHICLE_STALE_COLOR = '#9ca3af'; // HDT 過期時的車形顏色（灰）
+  const VEHICLE_MIN_PIXELS = 12;         // 車長在畫面上小於幾個像素時，改顯示圓點
 
-    function updateFollowState(state) {
-      autoCenter = state;
-      if (autoCenter) {
-        btnRecenter.classList.add('active');
-        btnRecenter.innerText = "鎖定跟隨";
-        if (lastPoint) {
-          map.panTo([lastPoint.lat, lastPoint.lng], { animate: true });
-        }
-      } else {
-        btnRecenter.classList.remove('active');
-        btnRecenter.innerText = "自由瀏覽";
+  // ---- 方格（對齊 TWD97 TM2 座標）----
+  const GRID_SPACING = 10;               // 方格間距（公尺）
+  const GRID_MAJOR = 100;                // 每幾公尺畫一條粗線
+  const GRID_MIN_ZOOM = 17;              // 地圖放大到這個等級以上才顯示方格
+  const GRID_COLOR = '#374151';
+  const TM2_CENTRAL_MERIDIAN = 121;      // TM2 中央經線：台灣本島 121，澎湖金馬 119
+  /* ======================================== */
+
+  const LIB_URLS = {
+    leafletCss: ['https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+                 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'],
+    leafletJs:  ['https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+                 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js'],
+    mqttJs:     ['https://unpkg.com/mqtt@5/dist/mqtt.min.js',
+                 'https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js']
+  };
+
+  // 定位品質（GGA 第 6 欄）：文字與地圖顏色
+  const QUALITY = {
+    0: { text: '無效定位', color: '#6b7280' },
+    1: { text: '單點定位 (GPS)', color: '#dc2626' },
+    2: { text: '差分定位 (DGPS)', color: '#2563eb' },
+    3: { text: 'PPS', color: '#6b7280' },
+    4: { text: 'RTK 固定解', color: '#16a34a' },
+    5: { text: 'RTK 浮動解', color: '#f59e0b' },
+    6: { text: '推算定位', color: '#6b7280' },
+    7: { text: '手動輸入', color: '#6b7280' },
+    8: { text: '模擬模式', color: '#6b7280' }
+  };
+  const OTHER_COLOR = '#6b7280';
+  const RMC_MODE = { A: '單點', D: '差分', E: '推算', F: 'RTK 浮動', R: 'RTK 固定', M: '手動', S: '模擬', N: '無效' };
+  const RMC_NAV = { S: '安全', C: '注意', U: '不安全', V: '無效 / 未提供' };
+
+  const $ = (id) => document.getElementById(id);
+  const el = {
+    deviceId: $('deviceId'), btnConnect: $('btnConnect'), chkFollow: $('chkFollow'),
+    btnFit: $('btnFit'), btnClear: $('btnClear'),
+    statusChip: $('statusChip'), staleChip: $('staleChip'),
+    notice: $('notice'), fileNotice: $('fileNotice'), btnFileNoticeClose: $('btnFileNoticeClose'),
+    topicHint: $('topicHint'), antHeight: $('antHeight')
+  };
+
+  /* ---------- 小工具 ---------- */
+  function setText(id, value) { $(id).textContent = value; }
+  function num(s) {
+    if (s === undefined || s === null || String(s).trim() === '') return null;
+    const v = Number(s);
+    return Number.isFinite(v) ? v : null;
+  }
+  function fmt(v, digits, unit) {
+    if (v === null || v === undefined) return '—';
+    return v.toFixed(digits) + (unit ? ' ' + unit : '');
+  }
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function formatUtcTime(s) {   // 'hhmmss.ss' -> 'hh:mm:ss.ss'
+    return /^\d{6}(\.\d+)?$/.test(s || '') ? s.slice(0, 2) + ':' + s.slice(2, 4) + ':' + s.slice(4) : '—';
+  }
+  function formatDateTime(ms, offsetHours) {
+    const d = new Date(ms + offsetHours * 3600000);
+    return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate()) + ' ' +
+           pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes()) + ':' + pad2(Math.floor(d.getUTCSeconds()));
+  }
+  // NMEA 座標 (d)ddmm.mmmm + 半球 -> 十進位度數；格式不對回傳 null
+  function toDegrees(value, hemi) {
+    const v = num(value);
+    if (v === null || v < 0) return null;
+    const deg = Math.floor(v / 100);
+    const min = v - deg * 100;
+    if (min >= 60) return null;
+    let dec = deg + min / 60;
+    if (hemi === 'S' || hemi === 'W') dec = -dec;
+    else if (hemi !== 'N' && hemi !== 'E') return null;
+    return dec;
+  }
+
+  /* ---------- 狀態列 ---------- */
+  function setStatus(text, kind) {
+    el.statusChip.textContent = text;
+    el.statusChip.className = 'chip' + (kind ? ' ' + kind : '');
+  }
+  function showNotice(text, linkUrl) {
+    el.notice.textContent = text;
+    if (linkUrl) {
+      el.notice.appendChild(document.createTextNode(' '));
+      const a = document.createElement('a');
+      a.href = linkUrl; a.target = '_blank'; a.rel = 'noopener'; a.textContent = linkUrl;
+      el.notice.appendChild(a);
+    }
+    el.notice.style.display = 'block';
+  }
+  function hideNotice() { el.notice.style.display = 'none'; el.notice.textContent = ''; }
+
+  /* ---------- 統計 ---------- */
+  const stats = { total: 0, ok: 0, bad: 0 };
+  function renderStats() {
+    setText('st_total', stats.total); setText('st_ok', stats.ok); setText('st_bad', stats.bad);
+    setText('st_trail', trailCount);
+  }
+
+  /* 原始訊息區已移除；保留此函式讓解析流程不用改 */
+  function pushRaw() {}
+
+  /* ---------- NMEA 解析 ---------- */
+  const SENTENCE_RE = /^\$([A-Z0-9]{3,12}),([^*]*)\*([0-9A-Fa-f]{2})/;
+
+  function parseLine(line) {
+    stats.total++;
+    const m = SENTENCE_RE.exec(line);
+    if (!m) {
+      stats.bad++;
+      pushRaw('✗', line, '不是完整的 NMEA 句子');
+      return;
+    }
+    const sentence = m[0];
+    const body = sentence.slice(1, sentence.indexOf('*'));
+    let x = 0;
+    for (let i = 0; i < body.length; i++) x ^= body.charCodeAt(i);
+    const expect = x.toString(16).toUpperCase().padStart(2, '0');
+    if (expect !== m[3].toUpperCase()) {
+      stats.bad++;
+      pushRaw('✗', line, '檢查碼錯誤（應為 ' + expect + '）');
+      return;
+    }
+    stats.ok++;
+    // 檢查碼後面如果還有多餘字元，只取前面完整的句子
+    const trimmed = line.length > sentence.length;
+    pushRaw('✓', sentence, trimmed ? '已忽略句尾多餘字元' : '');
+
+    const fields = (m[1] + ',' + m[2]).split(',');
+    switch (m[1].slice(2)) {          // 不看前兩碼 (GN/GP/BD...)，只看語句種類
+      case 'GGA': onGGA(fields); break;
+      case 'RMC': onRMC(fields); break;
+      case 'HDT': onHDT(fields); break;
+      case 'GST': onGST(fields); break;
+      default: break;
+    }
+  }
+
+  function handlePayload(text) {
+    const lines = text.split(/\r?\n/);
+    for (const raw of lines) {
+      // 一行裡如果黏了好幾句（...*54$GNGST,...），先依 $ 拆開再各自驗證
+      for (const piece of raw.split(/(?=\$)/)) {
+        const line = piece.trim();
+        if (line) parseLine(line);
       }
     }
+    renderStats();
+  }
 
-    // 當手動拖曳地圖或滾輪放大縮小時，立即停止強制置中
-    map.on('dragstart', () => { updateFollowState(false); });
-    map.on('zoomstart', () => { updateFollowState(false); });
+  let lastGgaAt = 0;
 
-    btnRecenter.addEventListener('click', () => {
-      updateFollowState(!autoCenter);
+  function onGGA(f) {
+    // f: [0]語句 [1]時間 [2]緯度 [3]N/S [4]經度 [5]E/W [6]品質 [7]衛星數 [8]HDOP
+    //    [9]海拔 [10]M [11]大地水準面差 [12]M [13]差分齡期 [14]基站ID
+    const q = num(f[6]);
+    const lat = toDegrees(f[2], f[3]);
+    const lon = toDegrees(f[4], f[5]);
+    const quality = q === null ? null : QUALITY[q];
+
+    const qEl = $('gga_q');
+    qEl.textContent = '';
+    if (q !== null) {
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = quality ? quality.color : OTHER_COLOR;
+      qEl.appendChild(dot);
+      qEl.appendChild(document.createTextNode((quality ? quality.text : '未知') + ' (' + q + ')'));
+    } else qEl.textContent = '—';
+
+    setText('gga_lat', fmt(lat, 9, '°'));
+    setText('gga_lon', fmt(lon, 9, '°'));
+    setText('gga_alt', fmt(num(f[9]), 4, 'm'));
+    setText('gga_geoid', fmt(num(f[11]), 4, 'm'));
+    setText('gga_sv', num(f[7]) === null ? '—' : String(num(f[7])));
+    setText('gga_hdop', fmt(num(f[8]), 2));
+    setText('gga_age', fmt(num(f[13]), 1, 's'));
+    setText('gga_station', f[14] ? f[14] : '—');
+    setText('gga_time', formatUtcTime(f[1]) + (f[1] ? ' UTC' : ''));
+
+    lastGgaAt = Date.now();
+    updateStale();
+
+    // 水位高
+    wlAlt = num(f[9]);
+    wlQ = q;
+    updateWaterLevel();
+
+    const valid = q !== null && q > 0 && lat !== null && lon !== null &&
+                  Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0);
+    if (valid && mapReady) updatePosition(lat, lon, q);
+  }
+
+  /* ---------- 水位高 ---------- */
+  let wlAlt = null, wlQ = null;
+  const ANT_HEIGHT_KEY = 'nmea_map_antenna_height';
+
+  function readAntennaHeight() {
+    const v = String(el.antHeight.value).trim();
+    return v === '' ? null : num(v);
+  }
+  function updateWaterLevel() {
+    const out = $('wl_value');
+    const ah = readAntennaHeight();
+    if (wlAlt === null || ah === null) {
+      out.textContent = '—'; out.className = 'big';
+      return;
+    }
+    out.textContent = (wlAlt - ah).toFixed(3) + ' m';
+    out.className = wlQ === 4 ? 'big' : 'big muted';   // 非 RTK 固定解時數字變灰
+  }
+  try { const saved = localStorage.getItem(ANT_HEIGHT_KEY); if (saved !== null) el.antHeight.value = saved; } catch (e) { /* 無法讀取就算了 */ }
+  el.antHeight.addEventListener('input', function () {
+    try { localStorage.setItem(ANT_HEIGHT_KEY, String(el.antHeight.value).trim()); } catch (e) { /* 無法儲存就算了 */ }
+    updateWaterLevel();
+  });
+  updateWaterLevel();
+
+  function onRMC(f) {
+    // [1]時間 [2]狀態 [3]緯度 [4]N/S [5]經度 [6]E/W [7]速度(節) [8]航向 [9]日期 [10]磁偏角 [11]E/W [12]模式 [13]導航狀態
+    const st = f[2];
+    setText('rmc_status', st === 'A' ? '有效 (A)' : st === 'V' ? '無效 (V)' : (st || '—'));
+    const kn = num(f[7]);
+    setText('rmc_speed', kn === null ? '—' :
+      (kn * 1.852).toFixed(3) + ' km/h（' + (kn * 0.514444).toFixed(3) + ' m/s，' + kn.toFixed(3) + ' 節）');
+    setText('rmc_course', fmt(num(f[8]), 1, '°'));
+
+    let ms = null;
+    if (/^\d{6}(\.\d+)?$/.test(f[1] || '') && /^\d{6}$/.test(f[9] || '')) {
+      const d = Number(f[9].slice(0, 2)), mo = Number(f[9].slice(2, 4)) - 1, y = 2000 + Number(f[9].slice(4, 6));
+      ms = Date.UTC(y, mo, d, Number(f[1].slice(0, 2)), Number(f[1].slice(2, 4)), 0) + parseFloat(f[1].slice(4)) * 1000;
+    }
+    setText('rmc_utc', ms === null ? '—' : formatDateTime(ms, 0));
+    setText('rmc_taipei', ms === null ? '—' : formatDateTime(ms, 8));
+    const mv = num(f[10]);
+    setText('rmc_magvar', mv === null ? '—' : mv.toFixed(1) + '° ' + (f[11] === 'W' ? '西' : f[11] === 'E' ? '東' : ''));
+    setText('rmc_mode', f[12] ? (RMC_MODE[f[12]] || '未知') + ' (' + f[12] + ')' : '—');
+    setText('rmc_nav', f[13] ? (RMC_NAV[f[13]] || '未知') + ' (' + f[13] + ')' : '—');
+  }
+
+  const COMPASS = ['北', '北北東', '東北', '東北東', '東', '東南東', '東南', '南南東', '南', '南南西', '西南', '西南西', '西', '西北西', '西北', '北北西'];
+  let heading = null, lastHdtAt = 0;   // 車形用的方位（已加 HEADING_OFFSET）
+  function onHDT(f) {
+    // [1]方位角(度) [2]T=真北
+    const h = num(f[1]);
+    setText('hdt_deg', fmt(h, 2, '°'));
+    if (h === null) { setText('hdt_dir', '—'); return; }
+    const idx = Math.round(((h % 360) + 360) % 360 / 22.5) % 16;
+    setText('hdt_dir', COMPASS[idx]);
+
+    heading = (((h + HEADING_OFFSET) % 360) + 360) % 360;
+    lastHdtAt = Date.now();
+    if (mapReady) drawVehicle();
+  }
+
+  function onGST(f) {
+    // [1]時間 [2]RMS [3]長軸 [4]短軸 [5]長軸方向 [6]緯度標準差 [7]經度標準差 [8]高度標準差
+    setText('gst_rms', fmt(num(f[2]), 3, 'm'));
+    setText('gst_major', fmt(num(f[3]), 3, 'm'));
+    setText('gst_minor', fmt(num(f[4]), 3, 'm'));
+    setText('gst_orient', fmt(num(f[5]), 2, '°'));
+    setText('gst_lat', fmt(num(f[6]), 3, 'm'));
+    setText('gst_lon', fmt(num(f[7]), 3, 'm'));
+    setText('gst_alt', fmt(num(f[8]), 3, 'm'));
+  }
+
+  /* ---------- 資料中斷提示 ---------- */
+  function updateStale() {
+    if (mapReady) drawVehicle();     // HDT 過期時讓車形變灰
+    if (!lastGgaAt) { el.staleChip.hidden = true; return; }
+    const age = Math.floor((Date.now() - lastGgaAt) / 1000);
+    el.staleChip.hidden = false;
+    if (age > STALE_SECONDS) {
+      el.staleChip.textContent = '資料中斷：' + age + ' 秒沒有新定位';
+      el.staleChip.className = 'chip warn';
+    } else {
+      el.staleChip.textContent = '最新定位 ' + age + ' 秒前';
+      el.staleChip.className = 'chip ok';
+    }
+  }
+  setInterval(updateStale, 1000);
+
+  /* ---------- 地圖與軌跡 ---------- */
+  let map = null, mapReady = false, marker = null;
+  const segments = [];     // 軌跡線段 { q, line, last }（目前整條軌跡只有一段、統一紅色）
+  let trailCount = 0;
+
+  function qualityColor(q) { return QUALITY[q] ? QUALITY[q].color : OTHER_COLOR; }
+
+  function distMeters(a, b) {
+    const dLat = (b[0] - a[0]) * 111320;
+    const dLon = (b[1] - a[1]) * 111320 * Math.cos(a[0] * Math.PI / 180);
+    return Math.hypot(dLat, dLon);
+  }
+
+  function updatePosition(lat, lon, q) {
+    const ll = [lat, lon];
+    const color = qualityColor(q);
+    const first = !marker;
+    if (first) {
+      marker = L.circleMarker(ll, { radius: 8, weight: 3, color: '#ffffff', fillColor: color, fillOpacity: 1 }).addTo(map);
+      map.setView(ll, 18);
+    } else {
+      marker.setLatLng(ll);
+      marker.setStyle({ fillColor: color });
+      if (el.chkFollow.checked) map.panTo(ll);
+    }
+    drawVehicle();
+
+    const last = segments[segments.length - 1];
+    if (last && distMeters(last.last, ll) < MIN_STEP_METERS) return;
+
+    if (!last) {
+      const line = L.polyline([ll], { color: TRAIL_COLOR, weight: 4, opacity: 0.9 }).addTo(map);
+      segments.push({ q: q, line: line, last: ll });
+    } else {
+      last.line.addLatLng(ll);
+      last.last = ll;
+    }
+    trailCount++;
+
+    while (trailCount > MAX_TRAIL_POINTS && segments.length) {
+      const seg = segments[0];
+      const pts = seg.line.getLatLngs();
+      pts.shift();
+      if (pts.length <= 1 && segments.length > 1) {
+        map.removeLayer(seg.line);
+        segments.shift();
+      } else {
+        seg.line.setLatLngs(pts);
+      }
+      trailCount--;
+    }
+    setText('st_trail', trailCount);
+  }
+
+  function clearTrail() {
+    for (const seg of segments) map.removeLayer(seg.line);
+    segments.length = 0;
+    trailCount = 0;
+    setText('st_trail', 0);
+  }
+
+  function fitTrail() {
+    const pts = [];
+    for (const seg of segments) for (const p of seg.line.getLatLngs()) pts.push(p);
+    if (!pts.length && marker) pts.push(marker.getLatLng());
+    if (!pts.length) return;
+    el.chkFollow.checked = false;
+    map.fitBounds(L.latLngBounds(pts).pad(0.2), { maxZoom: 19 });
+  }
+
+  /* ---------- 車形輪廓（1:1 實際尺寸，依 HDT 旋轉） ---------- */
+  const WGS_A = 6378137, WGS_E2 = 0.00669437999014;
+  let vehicleBody = null, vehicleGlass = null;
+
+  // 從 (lat, lon) 往「東 dE、北 dN」公尺移動後的經緯度
+  function offsetLatLng(lat, lon, dE, dN) {
+    const p = lat * Math.PI / 180, s = Math.sin(p);
+    const w = 1 - WGS_E2 * s * s;
+    const rN = WGS_A / Math.sqrt(w);                 // 卯酉圈曲率半徑
+    const rM = WGS_A * (1 - WGS_E2) / (w * Math.sqrt(w)); // 子午圈曲率半徑
+    return [lat + (dN / rM) * 180 / Math.PI, lon + (dE / (rN * Math.cos(p))) * 180 / Math.PI];
+  }
+
+  // 車身座標（x＝往車頭、y＝往右，原點＝天線）轉成經緯度
+  function vehiclePoints(lat, lon, hdg, pts) {
+    const t = hdg * Math.PI / 180, sn = Math.sin(t), cs = Math.cos(t);
+    return pts.map(function (p) {
+      const dE = p[0] * sn + p[1] * cs;
+      const dN = p[0] * cs - p[1] * sn;
+      return offsetLatLng(lat, lon, dE, dN);
+    });
+  }
+
+  function vehicleShape() {
+    const F = ANTENNA_FROM_FRONT, R = ANTENNA_FROM_FRONT - VEHICLE_LENGTH;
+    const c = -ANTENNA_RIGHT, h = VEHICLE_WIDTH / 2;
+    const k = Math.min(0.45, VEHICLE_LENGTH * 0.12, h * 0.6);   // 車頭收角
+    const r = Math.min(0.2, VEHICLE_LENGTH * 0.05, h * 0.3);    // 車尾小圓角
+    const body = [
+      [R + r, c - h], [F - k, c - h], [F, c - h + k], [F, c + h - k],
+      [F - k, c + h], [R + r, c + h], [R, c + h - r], [R, c - h + r]
+    ];
+    const gx = F - Math.min(1.3, VEHICLE_LENGTH * 0.3);          // 擋風玻璃線
+    const glass = [[gx, c - h * 0.8], [gx + 0.25, c], [gx, c + h * 0.8]];
+    return { body: body, glass: glass };
+  }
+
+  function vehiclePixels(lat) {
+    const mpp = 40075016.686 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8);
+    return VEHICLE_LENGTH / mpp;
+  }
+
+  function drawVehicle() {
+    if (!map || !marker) return;
+    const ll = marker.getLatLng();
+    const show = heading !== null && vehiclePixels(ll.lat) >= VEHICLE_MIN_PIXELS;
+    if (!show) {
+      if (vehicleBody && map.hasLayer(vehicleBody)) { map.removeLayer(vehicleBody); map.removeLayer(vehicleGlass); }
+      marker.setRadius(8); marker.setStyle({ weight: 3 });
+      return;
+    }
+    const stale = Date.now() - lastHdtAt > STALE_SECONDS * 1000;
+    const color = stale ? VEHICLE_STALE_COLOR : VEHICLE_COLOR;
+    const shape = vehicleShape();
+    const bodyLL = vehiclePoints(ll.lat, ll.lng, heading, shape.body);
+    const glassLL = vehiclePoints(ll.lat, ll.lng, heading, shape.glass);
+    if (!vehicleBody) {
+      vehicleBody = L.polygon(bodyLL, { color: color, weight: 2, fillColor: color, fillOpacity: 0.35, interactive: false });
+      vehicleGlass = L.polyline(glassLL, { color: color, weight: 2, opacity: 0.9, interactive: false });
+    } else {
+      vehicleBody.setLatLngs(bodyLL);
+      vehicleGlass.setLatLngs(glassLL);
+      vehicleBody.setStyle({ color: color, fillColor: color });
+      vehicleGlass.setStyle({ color: color });
+    }
+    if (!map.hasLayer(vehicleBody)) { vehicleBody.addTo(map); vehicleGlass.addTo(map); }
+    marker.setRadius(4); marker.setStyle({ weight: 1.5 });   // 車形顯示時，圓點縮小標示天線位置
+    marker.bringToFront();
+  }
+
+  /* ---------- TWD97 TM2 座標換算（GRS80 橢球） ---------- */
+  const TM = (function () {
+    const a = 6378137, f = 1 / 298.257222101, k0 = 0.9999, FE = 250000;
+    const e2 = 2 * f - f * f, ep2 = e2 / (1 - e2), e4 = e2 * e2, e6 = e4 * e2;
+    const lon0 = TM2_CENTRAL_MERIDIAN * Math.PI / 180;
+    const m1 = 1 - e2 / 4 - 3 * e4 / 64 - 5 * e6 / 256, m2 = 3 * e2 / 8 + 3 * e4 / 32 + 45 * e6 / 1024,
+          m3 = 15 * e4 / 256 + 45 * e6 / 1024, m4 = 35 * e6 / 3072;
+    const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+    function mArc(p) { return a * (m1 * p - m2 * Math.sin(2 * p) + m3 * Math.sin(4 * p) - m4 * Math.sin(6 * p)); }
+    function forward(latDeg, lonDeg) {
+      const p = latDeg * Math.PI / 180, s = Math.sin(p), c = Math.cos(p), t = Math.tan(p);
+      const N = a / Math.sqrt(1 - e2 * s * s), T = t * t, C = ep2 * c * c, A = (lonDeg * Math.PI / 180 - lon0) * c;
+      const x = k0 * N * (A + (1 - T + C) * A * A * A / 6 + (5 - 18 * T + T * T + 72 * C - 58 * ep2) * Math.pow(A, 5) / 120);
+      const y = k0 * (mArc(p) + N * t * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * Math.pow(A, 4) / 24 +
+                (61 - 58 * T + T * T + 600 * C - 330 * ep2) * Math.pow(A, 6) / 720));
+      return [x + FE, y];
+    }
+    function inverse(E, Nn) {
+      const mu = (Nn / k0) / (a * m1);
+      const p1 = mu + (3 * e1 / 2 - 27 * Math.pow(e1, 3) / 32) * Math.sin(2 * mu) +
+                 (21 * e1 * e1 / 16 - 55 * Math.pow(e1, 4) / 32) * Math.sin(4 * mu) +
+                 (151 * Math.pow(e1, 3) / 96) * Math.sin(6 * mu) + (1097 * Math.pow(e1, 4) / 512) * Math.sin(8 * mu);
+      const s = Math.sin(p1), c = Math.cos(p1), t = Math.tan(p1);
+      const C1 = ep2 * c * c, T1 = t * t, w = 1 - e2 * s * s;
+      const N1 = a / Math.sqrt(w), R1 = a * (1 - e2) / (w * Math.sqrt(w)), D = (E - FE) / (N1 * k0);
+      const lat = p1 - (N1 * t / R1) * (D * D / 2 - (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * ep2) * Math.pow(D, 4) / 24 +
+                  (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * ep2 - 3 * C1 * C1) * Math.pow(D, 6) / 720);
+      const lon = lon0 + (D - (1 + 2 * T1 + C1) * Math.pow(D, 3) / 6 +
+                  (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * ep2 + 24 * T1 * T1) * Math.pow(D, 5) / 120) / c;
+      return [lat * 180 / Math.PI, lon * 180 / Math.PI];
+    }
+    return { forward: forward, inverse: inverse };
+  })();
+
+  /* ---------- 10 m 方格 ---------- */
+  let gridLayer = null, gridHint = null;
+  const GRID_MAX_LINES = 600;
+
+  function drawGrid() {
+    if (!gridLayer) return;
+    gridLayer.clearLayers();
+    if (!map.hasLayer(gridLayer)) { gridHint.style.display = 'none'; return; }
+    if (map.getZoom() < GRID_MIN_ZOOM) { gridHint.style.display = 'block'; return; }
+    gridHint.style.display = 'none';
+
+    const b = map.getBounds();
+    const corners = [b.getSouthWest(), b.getNorthWest(), b.getNorthEast(), b.getSouthEast()]
+      .map(function (p) { return TM.forward(p.lat, p.lng); });
+    const Es = corners.map(function (c) { return c[0]; }), Ns = corners.map(function (c) { return c[1]; });
+    const S = GRID_SPACING;
+    const i0 = Math.floor(Math.min.apply(null, Es) / S), i1 = Math.ceil(Math.max.apply(null, Es) / S);
+    const j0 = Math.floor(Math.min.apply(null, Ns) / S), j1 = Math.ceil(Math.max.apply(null, Ns) / S);
+    if ((i1 - i0) + (j1 - j0) > GRID_MAX_LINES) return;
+
+    const majorEvery = Math.max(1, Math.round(GRID_MAJOR / S));
+    function style(k) {
+      const major = k % majorEvery === 0;
+      return { pane: 'gridPane', interactive: false, color: GRID_COLOR,
+               weight: major ? 1.8 : 1, opacity: major ? 0.85 : 0.55, dashArray: major ? '8 4' : '4 4' };
+    }
+    const nA = j0 * S, nB = j1 * S, eA = i0 * S, eB = i1 * S;
+    for (let i = i0; i <= i1; i++) {        // 南北向線（E 為定值）
+      const E = i * S;
+      L.polyline([TM.inverse(E, nA), TM.inverse(E, (nA + nB) / 2), TM.inverse(E, nB)], style(i)).addTo(gridLayer);
+    }
+    for (let j = j0; j <= j1; j++) {        // 東西向線（N 為定值）
+      const N = j * S;
+      L.polyline([TM.inverse(eA, N), TM.inverse((eA + eB) / 2, N), TM.inverse(eB, N)], style(j)).addTo(gridLayer);
+    }
+  }
+
+  function initMap() {
+    map = L.map('map', { zoomControl: true }).setView([23.7, 121.0], 7);
+    const nlsc = L.tileLayer('https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}', {
+      maxZoom: 22, maxNativeZoom: 19, attribution: '© 內政部國土測繪中心 臺灣通用電子地圖'
+    }).addTo(map);
+    const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 22, maxNativeZoom: 19, attribution: '© OpenStreetMap contributors'
+    });
+    const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 22, maxNativeZoom: 19, attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
     });
 
-    function calcDistance(lat1, lon1, lat2, lon2) {
-      const R = 6371000;
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon/2) * Math.sin(dLon/2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-      return R * c;
-    }
-
-    function createHeadingIcon(degree) {
-      const svg = `
-        <svg viewBox="0 0 32 32" width="28" height="28" style="transform: rotate(${degree}deg); transform-origin: center center;">
-          <polygon points="16,2 26,28 16,21 6,28" fill="#FF0000" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/>
-        </svg>
-      `;
-      return L.divIcon({
-        className: 'heading-icon',
-        html: svg,
-        iconSize: [28, 28],
-        iconAnchor: [14, 14]
-      });
-    }
-
-    function addTrackPoint(lat, lng, modeCode) {
-      const currentLatLng = [lat, lng];
-
-      if (lastPoint) {
-        const segDist = calcDistance(lastPoint.lat, lastPoint.lng, lat, lng);
-        totalDistance += segDist;
-
-        // 白色加粗底框 (8px)
-        L.polyline([[lastPoint.lat, lastPoint.lng], currentLatLng], {
-          color: '#ffffff',
-          weight: 8,
-          opacity: 0.9,
-          lineCap: 'round',
-          lineJoin: 'round'
-        }).addTo(trackLayerGroup);
-
-        // 純紅色航跡 (5px)
-        L.polyline([[lastPoint.lat, lastPoint.lng], currentLatLng], {
-          color: TRACK_COLOR,
-          weight: 5,
-          opacity: 1.0,
-          lineCap: 'round',
-          lineJoin: 'round'
-        }).addTo(trackLayerGroup);
-      } else {
-        startMarker = L.circleMarker(currentLatLng, {
-          radius: 7,
-          fillColor: "#ffffff",
-          color: "#000000",
-          weight: 3,
-          opacity: 1,
-          fillOpacity: 1
-        }).addTo(trackLayerGroup).bindPopup("航跡起點");
+    // 方格放在底圖之上、軌跡之下
+    map.createPane('gridPane');
+    map.getPane('gridPane').style.zIndex = 350;
+    map.getPane('gridPane').style.pointerEvents = 'none';
+    gridLayer = L.layerGroup().addTo(map);
+    const HintControl = L.Control.extend({
+      onAdd: function () {
+        const d = L.DomUtil.create('div', 'grid-hint');
+        d.textContent = GRID_SPACING + ' m 方格：請放大地圖後顯示';
+        d.style.display = 'none';
+        return d;
       }
-
-      // 當前位置純紅點
-      if (!currentMarker) {
-        currentMarker = L.circleMarker(currentLatLng, {
-          radius: 6,
-          fillColor: TRACK_COLOR,
-          color: "#ffffff",
-          weight: 2,
-          opacity: 1,
-          fillOpacity: 1
-        }).addTo(map);
-      } else {
-        currentMarker.setLatLng(currentLatLng);
-      }
-
-      // 即時航向箭頭
-      if (currentHeading !== null) {
-        if (!headingMarker) {
-          headingMarker = L.marker(currentLatLng, {
-            icon: createHeadingIcon(currentHeading),
-            zIndexOffset: 1000
-          }).addTo(map);
-        } else {
-          headingMarker.setLatLng(currentLatLng);
-          headingMarker.setIcon(createHeadingIcon(currentHeading));
-        }
-      }
-
-      lastPoint = { lat, lng };
-      totalPoints++;
-
-      const distStr = totalDistance > 1000 ? `${(totalDistance / 1000).toFixed(2)} km` : `${totalDistance.toFixed(1)} m`;
-      document.getElementById('trackStats').innerText = `${totalPoints} 點 / ${distStr}`;
-
-      // 使用 panTo 平移中心點，絕不更動使用者手動調好的放大比例
-      if (autoCenter) {
-        map.panTo(currentLatLng, { animate: true, duration: 0.5 });
-      }
-    }
-
-    // ==========================================
-    // 3. NMEA 解析器 (RMC / GGA / GST)
-    // ==========================================
-    function parseGNRMC(line) {
-      const match = line.match(/\$G[NPBLA]RMC,[^\*]*/);
-      if (!match) return null;
-
-      const tokens = match[0].split(',');
-      if (tokens.length < 9) return null;
-
-      const status = tokens[2];
-      const speedKnots = parseFloat(tokens[7]);
-      const headingTrue = parseFloat(tokens[8]);
-
-      return {
-        isValid: status === 'A',
-        speedKnots: isNaN(speedKnots) ? 0 : speedKnots,
-        speedKmh: isNaN(speedKnots) ? 0 : (speedKnots * 1.852),
-        heading: isNaN(headingTrue) ? null : headingTrue
-      };
-    }
-
-    function parseGNGGA(line) {
-      const match = line.match(/\$G[NPBLA]GGA,[^\*]*/);
-      if (!match) return null;
-
-      const tokens = match[0].split(',');
-      if (tokens.length < 10) return null;
-
-      const rawLat = tokens[2];
-      const latDir = tokens[3];
-      const rawLng = tokens[4];
-      const lngDir = tokens[5];
-      const fixQuality = parseInt(tokens[6], 10);
-      const satCount = tokens[7];
-      const hdop = tokens[8];
-      const altitude = tokens[9];
-
-      if (!rawLat || !rawLng || isNaN(fixQuality) || fixQuality === 0) {
-        return null;
-      }
-
-      const latDeg = parseFloat(rawLat.substring(0, 2));
-      const latMin = parseFloat(rawLat.substring(2));
-      let lat = latDeg + (latMin / 60.0);
-      if (latDir === 'S') lat = -lat;
-
-      const lngDeg = parseFloat(rawLng.substring(0, 3));
-      const lngMin = parseFloat(rawLng.substring(3));
-      let lng = lngDeg + (lngMin / 60.0);
-      if (lngDir === 'W') lng = -lng;
-
-      return { lat, lng, fixQuality, satCount, hdop, altitude };
-    }
-
-    function parseGNGST(line) {
-      const match = line.match(/\$G[NPBLA]GST,[^\*]*/);
-      if (!match) return null;
-
-      const tokens = match[0].split(',');
-      if (tokens.length < 9) return null;
-
-      const latStd = parseFloat(tokens[6]);
-      const lonStd = parseFloat(tokens[7]);
-      const altStd = parseFloat(tokens[8]);
-
-      if (isNaN(latStd) || isNaN(lonStd)) return null;
-
-      const hAcc = Math.sqrt(latStd * latStd + lonStd * lonStd);
-
-      return {
-        latStd: latStd,
-        lonStd: lonStd,
-        altStd: isNaN(altStd) ? null : altStd,
-        hAcc: hAcc
-      };
-    }
-
-    // ==========================================
-    // 4. MQTT 批次多行處理
-    // ==========================================
-    const fixBadge = document.getElementById('fixBadge');
-    const posText = document.getElementById('posText');
-    const satAltText = document.getElementById('satAltText');
-    const motionText = document.getElementById('motionText');
-    const gstText = document.getElementById('gstText');
-    const updateText = document.getElementById('updateText');
-    const btnClear = document.getElementById('btnClear');
-
-    btnClear.addEventListener('click', () => {
-      trackLayerGroup.clearLayers();
-      if (currentMarker) { map.removeLayer(currentMarker); currentMarker = null; }
-      if (headingMarker) { map.removeLayer(headingMarker); headingMarker = null; }
-      lastPoint = null;
-      currentHeading = null;
-      totalPoints = 0;
-      totalDistance = 0;
-      document.getElementById('trackStats').innerText = "0 點 / 0.0 m";
-      posText.innerText = "已清除";
-      satAltText.innerText = "-";
-      motionText.innerText = "速度: - | 航向: -";
-      gstText.innerText = "等待 GST...";
-      updateFollowState(true);
     });
+    gridHint = new HintControl({ position: 'bottomleft' }).addTo(map).getContainer();
 
-    function startMQTT() {
-      const options = {
-        clientId: 'web_marine_' + Math.random().toString(16).substring(2, 10),
-        clean: true,
-        connectTimeout: 8000,
-        reconnectPeriod: 4000
-      };
+    L.control.layers(
+      { '國土測繪中心 通用電子地圖': nlsc, 'OpenStreetMap': osm, 'Esri 衛星影像': esri },
+      { [GRID_SPACING + ' m 方格（TWD97）']: gridLayer }
+    ).addTo(map);
 
-      if (MQTT_CONFIG.username) options.username = MQTT_CONFIG.username;
-      if (MQTT_CONFIG.password) options.password = MQTT_CONFIG.password;
+    map.on('dragstart', function () { el.chkFollow.checked = false; });   // 手動拖曳地圖就停止自動置中
+    map.on('moveend overlayadd overlayremove resize', drawGrid);
+    map.on('zoomend', function () { drawVehicle(); });
+    mapReady = true;
+    drawGrid();
+  }
 
-      fixBadge.innerText = "連線中...";
-      fixBadge.style.backgroundColor = "#ffc107";
+  /* ---------- MQTT ---------- */
+  let client = null, manualStop = false, everConnected = false, failedAttempts = 0;
 
-      const client = mqtt.connect(MQTT_CONFIG.host, options);
+  function buildTopic(id) { return TOPIC_PREFIX + id + TOPIC_SUFFIX; }
 
-      client.on('connect', () => {
-        fixBadge.innerText = "已連線";
-        fixBadge.style.backgroundColor = "#17a2b8";
-        updateText.innerText = `已訂閱: ${MQTT_CONFIG.topic}`;
-        client.subscribe(MQTT_CONFIG.topic);
-      });
+  function setConnectedUi(on) {
+    el.btnConnect.textContent = on ? '中斷連線' : '連線';
+    el.btnConnect.className = on ? '' : 'primary';
+    el.deviceId.disabled = on;
+  }
 
-      client.on('message', (topic, payload) => {
-        const payloadStr = payload.toString();
-        const lines = payloadStr.split(/\r?\n/);
-        
-        let pendingGGA = null;
-        let pendingGST = null;
-        let pendingRMC = null;
-
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line) continue;
-
-          if (line.includes('RMC')) {
-            const parsed = parseGNRMC(line);
-            if (parsed) pendingRMC = parsed;
-          } else if (line.includes('GGA')) {
-            const parsed = parseGNGGA(line);
-            if (parsed) pendingGGA = parsed;
-          } else if (line.includes('GST')) {
-            const parsed = parseGNGST(line);
-            if (parsed) pendingGST = parsed;
-          }
-        }
-
-        // 1. 處理 RMC 速度與航向
-        if (pendingRMC) {
-          if (pendingRMC.heading !== null) {
-            currentHeading = pendingRMC.heading;
-          }
-          const knotStr = pendingRMC.speedKnots.toFixed(2);
-          const kmhStr = pendingRMC.speedKmh.toFixed(2);
-          const hdgStr = pendingRMC.heading !== null ? `${pendingRMC.heading.toFixed(1)}°` : '-';
-          motionText.innerText = `${kmhStr} km/h (${knotStr} kn) | 航向: ${hdgStr}`;
-        }
-
-        // 2. 處理 GST 精度
-        if (pendingGST) {
-          const hAccCm = (pendingGST.hAcc * 100).toFixed(1);
-          const vAccCm = pendingGST.altStd !== null ? (pendingGST.altStd * 100).toFixed(1) : '-';
-          gstText.innerText = `水平: ±${hAccCm} cm | 垂直: ±${vAccCm} cm`;
-        }
-
-        // 3. 處理 GGA 座標與劃記
-        if (pendingGGA) {
-          const modeInfo = fixModes[pendingGGA.fixQuality] || { text: `模式 ${pendingGGA.fixQuality}`, color: "#007bff" };
-          fixBadge.innerText = modeInfo.text;
-          fixBadge.style.backgroundColor = modeInfo.color;
-          posText.innerText = `${pendingGGA.lat.toFixed(8)}, ${pendingGGA.lng.toFixed(8)}`;
-          satAltText.innerText = `衛數: ${pendingGGA.satCount} | 高程: ${pendingGGA.altitude}m | HDOP: ${pendingGGA.hdop}`;
-
-          addTrackPoint(pendingGGA.lat, pendingGGA.lng, pendingGGA.fixQuality);
-          updateText.innerText = `最後更新: ${new Date().toLocaleTimeString()}`;
-        }
-      });
-
-      client.on('error', (err) => {
-        fixBadge.innerText = "連線錯誤";
-        fixBadge.style.backgroundColor = "#dc3545";
-        updateText.innerText = err.message || "連線異常";
-      });
-
-      client.on('close', () => {
-        fixBadge.innerText = "重連中...";
-        fixBadge.style.backgroundColor = "#6c757d";
-      });
+  function connect() {
+    const id = el.deviceId.value.trim();
+    if (!id) {
+      setStatus('請先輸入設備 ID', 'bad');
+      el.deviceId.focus();
+      return;
     }
+    if (typeof mqtt === 'undefined') {
+      setStatus('MQTT 函式庫載入失敗', 'bad');
+      showNotice('無法載入 MQTT 函式庫（來源：unpkg.com、cdn.jsdelivr.net）。請確認這台電腦可以連上網際網路，或網路防火牆沒有擋掉這些網站，然後重新整理本頁。');
+      return;
+    }
+    try { localStorage.setItem('nmea_map_device_id', id); } catch (e) { /* 無法儲存就算了 */ }
 
-    window.addEventListener('DOMContentLoaded', startMQTT);
-  </script>
+    hideNotice();
+    manualStop = false; everConnected = false; failedAttempts = 0;
+    const topic = buildTopic(id);
+    setStatus('連線中…', 'warn');
+    setConnectedUi(true);
+
+    const opts = {
+      clientId: 'nmea_map_' + Math.random().toString(16).slice(2, 10),
+      clean: true, reconnectPeriod: 3000, connectTimeout: 10000, resubscribe: false
+    };
+    if (MQTT_USERNAME) { opts.username = MQTT_USERNAME; opts.password = MQTT_PASSWORD; }
+
+    const c = mqtt.connect(MQTT_URL, opts);
+    client = c;
+
+    c.on('connect', function () {
+      everConnected = true; failedAttempts = 0; hideNotice();
+      setStatus('已連線，正在訂閱…', 'warn');
+      c.subscribe(topic, { qos: MQTT_QOS }, function (err) {
+        if (err) setStatus('訂閱失敗：' + err.message, 'bad');
+        else setStatus('已連線', 'ok');
+      });
+    });
+    c.on('reconnect', function () { if (!manualStop) setStatus('重新連線中…', 'warn'); });
+    c.on('offline', function () { if (!manualStop) setStatus('離線，等待重新連線…', 'warn'); });
+    c.on('error', function (err) {
+      if (!manualStop) setStatus('連線錯誤：' + (err && err.message ? err.message : '未知錯誤'), 'bad');
+    });
+    c.on('close', function () {
+      if (manualStop) return;
+      if (!everConnected) {
+        failedAttempts++;
+        if (failedAttempts === 2) showConnectHelp();
+      } else {
+        setStatus('連線中斷，重新連線中…', 'warn');
+      }
+    });
+    c.on('message', function (t, payload) {
+      handlePayload(new TextDecoder('utf-8').decode(payload));
+    });
+  }
+
+  function showConnectHelp() {
+    setStatus('連不上 broker', 'bad');
+    showNotice('一直連不上 ' + MQTT_URL + '。若該 broker 的憑證已過期，瀏覽器會直接擋下連線，網頁無法像桌面程式一樣略過憑證檢查。' +
+               '可以先在新分頁開啟下面的網址，按「進階」→「繼續前往」接受一次風險，再回來按連線；也請確認網路或防火牆沒有擋掉 8084 連接埠。',
+               'https://mqttgo.vip:8084');
+  }
+
+  function disconnect() {
+    manualStop = true;
+    if (client) { try { client.end(true); } catch (e) { /* 忽略 */ } client = null; }
+    setConnectedUi(false);
+    setStatus('已中斷連線');
+    hideNotice();
+  }
+
+  function updateTopicHint() { el.topicHint.textContent = 'Topic：' + buildTopic(el.deviceId.value.trim() || '<設備ID>'); }
+  el.deviceId.addEventListener('input', updateTopicHint);
+
+  el.btnConnect.addEventListener('click', function () { client ? disconnect() : connect(); });
+  el.deviceId.addEventListener('keydown', function (e) { if (e.key === 'Enter') { client ? disconnect() : connect(); } });
+  el.btnClear.addEventListener('click', function () { if (mapReady) clearTrail(); });
+  el.btnFit.addEventListener('click', function () { if (mapReady) fitTrail(); });
+  el.btnFileNoticeClose.addEventListener('click', function () { el.fileNotice.style.display = 'none'; });
+  window.addEventListener('beforeunload', function () { if (client) { try { client.end(true); } catch (e) { /* 忽略 */ } } });
+
+  /* ---------- 載入函式庫並啟動 ---------- */
+  function loadScript(urls) {
+    return new Promise(function (resolve, reject) {
+      let i = 0;
+      (function next() {
+        if (i >= urls.length) { reject(new Error('載入失敗')); return; }
+        const s = document.createElement('script');
+        s.src = urls[i++];
+        s.onload = function () { resolve(); };
+        s.onerror = function () { s.remove(); next(); };
+        document.head.appendChild(s);
+      })();
+    });
+  }
+  function loadCss(urls) {
+    let i = 0;
+    (function next() {
+      if (i >= urls.length) return;
+      const l = document.createElement('link');
+      l.rel = 'stylesheet'; l.href = urls[i++];
+      l.onerror = function () { l.remove(); next(); };
+      document.head.appendChild(l);
+    })();
+  }
+
+  try { el.deviceId.value = localStorage.getItem('nmea_map_device_id') || DEFAULT_DEVICE_ID; }
+  catch (e) { el.deviceId.value = DEFAULT_DEVICE_ID; }
+  updateTopicHint();
+  renderStats();
+
+  loadCss(LIB_URLS.leafletCss);
+  loadScript(LIB_URLS.leafletJs).then(initMap).catch(function () {
+    showNotice('無法載入地圖函式庫（來源：unpkg.com、cdn.jsdelivr.net）。請確認這台電腦可以連上網際網路，然後重新整理本頁。座標與資訊面板仍可使用，但不會顯示地圖。');
+  });
+  loadScript(LIB_URLS.mqttJs).catch(function () { /* 按連線時再提示 */ });
+
+  // 供測試與除錯使用：在瀏覽器主控台輸入 nmeaMap.handlePayload('$GNGGA,...') 可以手動餵資料
+  window.nmeaMap = { handlePayload: handlePayload };
+})();
+</script>
 </body>
 </html>
