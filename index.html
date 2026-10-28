@@ -47,6 +47,7 @@
   .hint { overflow-wrap: anywhere; max-width: 100%; color: var(--muted); font-size: 12px; font-family: Consolas, "Cascadia Mono", monospace; }
   .check { display: flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
   .check input { width: 16px; height: 16px; }
+  .check.off { color: var(--muted); cursor: not-allowed; }
   .status { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 14px; }
   .chip { padding: 3px 10px; border-radius: 999px; background: var(--chip-bg); color: var(--muted); font-weight: 600; }
   .chip.ok { color: var(--ok); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); }
@@ -105,6 +106,7 @@
     </div>
     <button id="btnConnect" class="primary" type="button">連線</button>
     <label class="check"><input id="chkFollow" type="checkbox" checked> 自動置中</label>
+    <label class="check" id="wakeLabel"><input id="chkWake" type="checkbox" checked> 螢幕常亮</label>
     <button id="btnFit" type="button">全覽軌跡</button>
     <button id="btnClear" type="button">清除軌跡</button>
   </div>
@@ -259,7 +261,7 @@
 
   const $ = (id) => document.getElementById(id);
   const el = {
-    deviceId: $('deviceId'), btnConnect: $('btnConnect'), chkFollow: $('chkFollow'),
+    deviceId: $('deviceId'), btnConnect: $('btnConnect'), chkFollow: $('chkFollow'), chkWake: $('chkWake'),
     btnFit: $('btnFit'), btnClear: $('btnClear'),
     statusChip: $('statusChip'), staleChip: $('staleChip'),
     notice: $('notice'), fileNotice: $('fileNotice'), btnFileNoticeClose: $('btnFileNoticeClose'),
@@ -821,6 +823,7 @@
     c.on('message', function (t, payload) {
       handlePayload(new TextDecoder('utf-8').decode(payload));
     });
+    applyWake();
   }
 
   function showConnectHelp() {
@@ -836,7 +839,35 @@
     setConnectedUi(false);
     setStatus('已中斷連線');
     hideNotice();
+    applyWake();
   }
+
+  /* ---------- 螢幕常亮（連線中且有勾選時，防止手機自動鎖屏） ---------- */
+  let wakeLock = null, wakePending = false;
+  const wakeSupported = 'wakeLock' in navigator;
+  if (!wakeSupported) {
+    el.chkWake.checked = false;
+    el.chkWake.disabled = true;
+    $('wakeLabel').classList.add('off');
+    $('wakeLabel').title = '此瀏覽器不支援螢幕常亮（手機需用 https 網址開啟）';
+  }
+  async function applyWake() {
+    const want = wakeSupported && el.chkWake.checked && client !== null && document.visibilityState === 'visible';
+    if (want && !wakeLock && !wakePending) {
+      wakePending = true;
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', function () { wakeLock = null; });
+      } catch (e) { wakeLock = null; /* 瀏覽器拒絕（例如省電模式），略過 */ }
+      wakePending = false;
+      if (!(wakeSupported && el.chkWake.checked && client !== null) && wakeLock) applyWake();  // 申請期間狀態改變了
+    } else if (!want && wakeLock) {
+      const w = wakeLock; wakeLock = null;
+      try { await w.release(); } catch (e) { /* 忽略 */ }
+    }
+  }
+  el.chkWake.addEventListener('change', applyWake);
+  document.addEventListener('visibilitychange', applyWake);   // 切回網頁時重新申請
 
   function updateTopicHint() { el.topicHint.textContent = 'Topic：' + buildTopic(el.deviceId.value.trim() || '<設備ID>'); }
   el.deviceId.addEventListener('input', updateTopicHint);
